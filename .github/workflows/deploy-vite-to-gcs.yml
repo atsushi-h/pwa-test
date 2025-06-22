@@ -1,0 +1,95 @@
+name: Deploy Vite App to GCS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+          cache: 'npm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Vite app
+        run: pnpm turbo run build --filter=vite
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Storage
+        run: |
+          BUCKET_NAME="${{ secrets.GCS_BUCKET_NAME }}"
+          
+          echo "🚀 本番環境へデプロイ開始"
+          echo "📦 バケット: $BUCKET_NAME"
+          
+          # Cloud Storageバケットにファイルをアップロード
+          gsutil -m rsync -r -d apps/vite/dist/ gs://$BUCKET_NAME/
+          
+          # キャッシュ制御とMIMEタイプの設定
+          gsutil -m setmeta -h "Cache-Control:public, max-age=31536000" gs://$BUCKET_NAME/**/*.{js,css,png,jpg,jpeg,gif,svg,ico,woff,woff2} || true
+          gsutil -m setmeta -h "Cache-Control:public, max-age=3600" gs://$BUCKET_NAME/**/*.html || true
+          
+          # PWAファイルのキャッシュ設定
+          gsutil -m setmeta -h "Cache-Control:no-cache" gs://$BUCKET_NAME/sw.js || true
+          gsutil -m setmeta -h "Cache-Control:no-cache" gs://$BUCKET_NAME/manifest.json || true
+          
+          echo "✅ Vite PWA app deployed to Cloud Storage"
+          echo "🌐 URL: https://storage.googleapis.com/$BUCKET_NAME/index.html"
+          
+          # 環境変数に結果を保存
+          echo "DEPLOYED_URL=https://storage.googleapis.com/$BUCKET_NAME/index.html" >> $GITHUB_ENV
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_ENV
+
+      - name: Run tests (if available)
+        run: |
+          if pnpm --filter=vite test --version > /dev/null 2>&1; then
+            pnpm turbo run test --filter=vite
+          else
+            echo "⚠️ No tests found for Vite app"
+          fi
+
+      - name: Build summary
+        run: |
+          echo "## 🚀 デプロイ完了" >> $GITHUB_STEP_SUMMARY
+          echo "- **アプリ**: Vite PWA" >> $GITHUB_STEP_SUMMARY
+          echo "- **環境**: 本番環境 (production)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Node Version**: $(cat .node-version)" >> $GITHUB_STEP_SUMMARY
+          echo "- **PNPM Version**: $(node -p "require('./package.json').packageManager.split('@')[1]")" >> $GITHUB_STEP_SUMMARY
+          echo "- **バケット**: ${{ env.BUCKET_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: [${{ env.DEPLOYED_URL }}](${{ env.DEPLOYED_URL }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 設定が必要なSecrets" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GCP_SA_KEY\`: GCPサービスアカウントのJSONキー" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GCS_BUCKET_NAME\`: 本番環境のCloud Storageバケット名" >> $GITHUB_STEP_SUMMARY
