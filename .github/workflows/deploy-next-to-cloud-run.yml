@@ -80,6 +80,7 @@ jobs:
         run: |
           SERVICE_NAME="${{ secrets.CLOUD_RUN_SERVICE_NAME }}"
           REGION="${{ secrets.GCP_REGION }}"
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
           
           echo "🚀 Cloud Runへデプロイ中..."
           echo "📍 Service: $SERVICE_NAME"
@@ -95,6 +96,7 @@ jobs:
             --memory=512Mi \
             --cpu=1 \
             --max-instances=10 \
+            --service-account="ci-cd-deploy-account@${PROJECT_ID}.iam.gserviceaccount.com" \
             --set-env-vars="NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1" \
             --quiet
           
