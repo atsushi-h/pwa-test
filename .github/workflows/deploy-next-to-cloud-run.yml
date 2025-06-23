@@ -1,0 +1,139 @@
+name: Deploy Next.js App to Cloud Run
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Next.js app
+        run: pnpm turbo run build --filter=next
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev
+
+      - name: Build and push Docker image
+        run: |
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+          REGION="${{ secrets.GCP_REGION }}"
+          REPOSITORY="${{ secrets.ARTIFACT_REGISTRY_REPO }}"
+          IMAGE_NAME="next-pwa-app"
+          TAG=$(echo $GITHUB_SHA | head -c7)
+          
+          IMAGE_URI="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:$TAG"
+          LATEST_URI="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:latest"
+          
+          echo "🐳 Docker image building..."
+          echo "📦 Image URI: $IMAGE_URI"
+          
+          # Build Docker image
+          docker build -t $IMAGE_URI -t $LATEST_URI -f apps/next/Dockerfile .
+          
+          # Push to Artifact Registry
+          docker push $IMAGE_URI
+          docker push $LATEST_URI
+          
+          # Set environment variables for next steps
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+          echo "LATEST_URI=$LATEST_URI" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run
+        run: |
+          SERVICE_NAME="${{ secrets.CLOUD_RUN_SERVICE_NAME }}"
+          REGION="${{ secrets.GCP_REGION }}"
+          
+          echo "🚀 Cloud Runへデプロイ中..."
+          echo "📍 Service: $SERVICE_NAME"
+          echo "🌐 Region: $REGION"
+          echo "🖼️ Image: ${{ env.IMAGE_URI }}"
+          
+          gcloud run deploy $SERVICE_NAME \
+            --image=${{ env.IMAGE_URI }} \
+            --platform=managed \
+            --region=$REGION \
+            --allow-unauthenticated \
+            --port=3000 \
+            --memory=512Mi \
+            --cpu=1 \
+            --max-instances=10 \
+            --set-env-vars="NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1" \
+            --quiet
+          
+          # Get service URL
+          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)")
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+          
+          echo "✅ デプロイ完了"
+          echo "🌐 Service URL: $SERVICE_URL"
+
+      - name: Run tests (if available)
+        run: |
+          if pnpm --filter=next test --version > /dev/null 2>&1; then
+            pnpm turbo run test --filter=next
+          else
+            echo "⚠️ No tests found for Next.js app"
+          fi
+
+      - name: Build summary
+        run: |
+          echo "## 🚀 デプロイ完了" >> $GITHUB_STEP_SUMMARY
+          echo "- **アプリ**: Next.js PWA" >> $GITHUB_STEP_SUMMARY
+          echo "- **環境**: 本番環境 (Cloud Run)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Node Version**: $(cat .node-version)" >> $GITHUB_STEP_SUMMARY
+          echo "- **PNPM Version**: $(node -p "require('./package.json').packageManager.split('@')[1]")" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Image**: ${{ env.IMAGE_URI }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image Tag**: ${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service URL**: [${{ env.SERVICE_URL }}](${{ env.SERVICE_URL }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 設定が必要なSecrets" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GCP_SA_KEY\`: GCPサービスアカウントのJSONキー" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GCP_PROJECT_ID\`: GCPプロジェクトID" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GCP_REGION\`: GCPリージョン (例: asia-northeast1)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ARTIFACT_REGISTRY_REPO\`: Artifact Registryリポジトリ名" >> $GITHUB_STEP_SUMMARY
+          echo "- \`CLOUD_RUN_SERVICE_NAME\`: Cloud Runサービス名" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 必要な事前設定" >> $GITHUB_STEP_SUMMARY
+          echo "1. Artifact Registryリポジトリの作成" >> $GITHUB_STEP_SUMMARY
+          echo "2. サービスアカウントに以下の権限を付与:" >> $GITHUB_STEP_SUMMARY
+          echo "   - Artifact Registry Writer" >> $GITHUB_STEP_SUMMARY
+          echo "   - Cloud Run Admin" >> $GITHUB_STEP_SUMMARY
+          echo "   - Service Account User" >> $GITHUB_STEP_SUMMARY
