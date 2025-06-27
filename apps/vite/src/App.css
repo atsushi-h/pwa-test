@@ -40,3 +40,29 @@
 .read-the-docs {
   color: #888;
 }
+
+.pwa-install-btn {
+  margin-top: 1rem;
+  background: #646cff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.25s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.pwa-install-btn:hover {
+  background: #535bf2;
+}
+
+.pwa-install-btn:focus,
+.pwa-install-btn:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}

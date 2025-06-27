@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
+import { PWAInstallButton } from '@repo/ui'
 import './App.css'
 
 function App() {
@@ -24,6 +25,11 @@ function App() {
         <p>
           Edit <code>src/App.tsx</code> and save to test HMR
         </p>
+        <PWAInstallButton 
+          installText="📱 アプリをインストール"
+          promptText="Vite PWAアプリをホーム画面に追加"
+          className="pwa-install-btn"
+        />
       </div>
       <p className="read-the-docs">
         Click on the Vite and React logos to learn more
