@@ -1,5 +1,5 @@
 import Image, { type ImageProps } from "next/image";
-import { Button } from "@repo/ui/button";
+import { Button, PWAInstallButton } from "@repo/ui";
 import styles from "./page.module.css";
 
 type Props = Omit<ImageProps, "src"> & {
@@ -63,9 +63,16 @@ export default function Home() {
             Read our docs
           </a>
         </div>
-        <Button appName="web" className={styles.secondary}>
-          Open alert
-        </Button>
+        <div className={styles.buttons}>
+          <Button appName="Next.js" className={styles.secondary}>
+            Open alert
+          </Button>
+          <PWAInstallButton 
+            className={styles.primary}
+            installText="📱 アプリをインストール"
+            promptText="Next.js PWAアプリをホーム画面に追加"
+          />
+        </div>
       </main>
       <footer className={styles.footer}>
         <a
